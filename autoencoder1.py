@@ -115,7 +115,7 @@ class Autoencoder(nn.Module):
 		# print(x.shape)
 		return x
 
-def saveCheckpoint(epoch, model, optimizer, loss, path):
+def saveCheckpoint(model, epoch, optimizer, loss, path):
 	torch.save(
 		{
 			'epoch': epoch,
@@ -127,46 +127,75 @@ def saveCheckpoint(epoch, model, optimizer, loss, path):
 	)
 	print('Checkpoint saved to ' + path)
 
-# def loadCheckpoint(path):
-# 	model = Autoencoder()
-# 	optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+def loadCheckpoint(path, model):
+	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-# 	checkpoint = torch.load(path)
-# 	model.load_state_dict
+	checkpoint = torch.load(path)
+	state = model.state_dict()
+	state.update(checkpoint['model_state_dict'])
+	model.load_state_dict(checkpoint['model_state_dict'])
+	optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+	epoch = checkpoint['epoch']
+	loss = checkpoint['loss']
+
+	return model, epoch, optimizer, loss
+
+def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epoch=0, num_epochs=2):
+	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
+
+	for epoch in range(epoch, num_epochs):
+		running_loss = 0.0
+		for i, data in enumerate(trainloader, 0):
+			inputs, labels = data
+			
+			inputs = inputs.to(device)
+
+			optimizer.zero_grad()
+
+			outputs = model(inputs)
+			loss = criterion(outputs, inputs)
+			loss.backward()
+			optimizer.step()
+
+			running_loss += loss.item()
+			if i % 10 == 9:
+				print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 10))
+				running_loss = 0.0
+
+		if epoch % 5 == 4:
+			print('Saving checkpoint for epoch %d' % (epoch + 1))
+			# torch.save(model.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
+			saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
+
+	saveCheckpoint(epoch, model, optimizer, loss, 'CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
+
 
 def main():
-	print ("Hello there")
-
-	def transform(inTensor):
-		transforml2 = transforms.Compose(
-			[	
-				transforms.ToTensor(),
-				transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-			]
-		)
-		x = transforml2(inTensor)
-		# x = x.repeat(3, 1, 1)
-		return x
+	transform = transforms.Compose(
+		[	
+			transforms.ToTensor(),
+			transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+		]
+	)
 
 	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=True, transform=transform)
-	trainloader = torch.utils.data.DataLoader(trainset, batch_size=40, shuffle=True, num_workers=2)
 	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=True, transform=transform)
 	testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
 
-	classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+	model = Autoencoder()
 
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-	net = Autoencoder()
-
 	if torch.cuda.device_count() > 1:
-		net = nn.DataParallel(net)
+		model = nn.DataParallel(model)
 
-	# net.to(device)
+	model.to(device)
 
-	# criterion = nn.MSELoss()
-	# optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+	criterion = nn.MSELoss()
+	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
+	train(model, optimizer, criterion, trainset, batch_size=8)
 	# for epoch in range(40):
 	# 	running_loss = 0.0
 	# 	for i, data in enumerate(trainloader, 0):
@@ -193,24 +222,27 @@ def main():
 
 	# torch.save(net.state_dict(), './CIFAR10_trained_40.pt')
 
-	dataiter = iter(testloader)
-	images, labels = dataiter.next()
-	images = images.to(device)
+	# dataiter = iter(testloader)
+	# images, labels = dataiter.next()
+	# images = images.to(device)
 
-	loadedNet = Autoencoder()
-	loadedNet = nn.DataParallel(loadedNet)
-	state = loadedNet.state_dict()
-	state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
+	# net = Autoencoder()
+	# net = nn.DataParallel(net)
 
-	loadedNet.load_state_dict(state)
-	loadedNet.to(device)
+	# net, epoch, optimizer, loss = loadCheckpoint('./CIFAR10_checkpt_40.pt', net)
+	# print("Loading at epoch %d" % epoch)
+	# # state = net.state_dict()
+	# # state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
 
-	with torch.no_grad():
-		trainedOutput = loadedNet(images)
+	# # net.load_state_dict(state)
+	# net.to(device)
 
-	concatSlice = torch.cat((images, trainedOutput.detach())).cpu()
+	# with torch.no_grad():
+	# 	trainedOutput = net(images)
 
-	imshow(torchvision.utils.make_grid(concatSlice))
+	# concatSlice = torch.cat((images, trainedOutput.detach())).cpu()
+
+	# imshow(torchvision.utils.make_grid(concatSlice))
 
 
 if __name__ == "__main__":
