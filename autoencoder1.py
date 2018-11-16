@@ -9,6 +9,8 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import numpy as np
 
+import time
+
 # This may come in handy
 # https://github.com/mortezamg63/Accessing-and-modifying-different-layers-of-a-pretrained-model-in-pytorch
 
@@ -144,32 +146,56 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
 
+	if epoch != 0:
+		print("Resuming training from epoch %d of %d." % (epoch, num_epochs))
+
 	for epoch in range(epoch, num_epochs):
 		running_loss = 0.0
+		start_time = time.time()
 		for i, data in enumerate(trainloader, 0):
 			inputs, labels = data
-			
+
 			inputs = inputs.to(device)
 
 			optimizer.zero_grad()
 
 			outputs = model(inputs)
 			loss = criterion(outputs, inputs)
+			loss = loss.to(device)
 			loss.backward()
 			optimizer.step()
 
 			running_loss += loss.item()
 			if i % 10 == 9:
-				print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 10))
+				duration = time.time() - start_time
+				print('[%d, %5d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
 				running_loss = 0.0
+				start_time = time.time()
 
 		if epoch % 5 == 4:
 			print('Saving checkpoint for epoch %d' % (epoch + 1))
 			# torch.save(model.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
 			saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
 
-	saveCheckpoint(epoch, model, optimizer, loss, 'CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
+def evaluate(model, criterion, testset, batch_size=8):
+	print("Evaluating model performance")
+	testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
+	model.eval()
+	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+	total = 0
+	totalLoss = 0
+	with torch.no_grad():
+		for data in testloader:
+			inputs, labels = data
+			inputs = inputs.to(device)
+			outputs = model(inputs)
+			loss = criterion(outputs, inputs)
+			totalLoss += loss
+			print("Batch loss: %.5f" % loss)
+			total += 1
+		ave_loss = totalLoss/total
 
+	print("Average loss over %d test examples = %.5f" %(total * batch_size, ave_loss))
 
 def main():
 	transform = transforms.Compose(
@@ -181,7 +207,6 @@ def main():
 
 	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=True, transform=transform)
 	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=True, transform=transform)
-	testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
 
 	model = Autoencoder()
 
@@ -193,56 +218,37 @@ def main():
 	model.to(device)
 
 	criterion = nn.MSELoss()
+	criterion = criterion.to(device)
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-	train(model, optimizer, criterion, trainset, batch_size=8)
-	# for epoch in range(40):
-	# 	running_loss = 0.0
-	# 	for i, data in enumerate(trainloader, 0):
-	# 		inputs, labels = data
-	# 		inputs = inputs.to(device)
+	model, epoch, optimizer, loss = loadCheckpoint('CIFAR10_checkpt_5.pt', model)
 
-	# 		optimizer.zero_grad()
+	# evaluate(model, criterion, testset, batch_size=90)
 
-	# 		outputs = net(inputs)
-	# 		loss = criterion(outputs, inputs)
-	# 		loss.backward()
-	# 		optimizer.step()
+	# train(model, optimizer, criterion, trainset, batch_size=40, epoch=epoch, num_epochs=100)
+	testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
 
-	# 		running_loss += loss.item()
-	# 		if i % 10 == 9:
-	# 			print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 10))
-	# 			running_loss = 0.0
+	dataiter = iter(testloader)
+	images, labels = dataiter.next()
+	images = images.to(device)
 
-	# 	if epoch % 5 == 4:
-	# 		print('Saving checkpoint for epoch %d' % (epoch + 1))
-	# 		# torch.save(net.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
-	# 		saveCheckpoint(epoch, net, optimizer, loss, './CIFAR10_checkpt_%d.pt' % (epoch + 1))
+	net = Autoencoder()
+	net = nn.DataParallel(net)
 
+	net, epoch, optimizer, loss = loadCheckpoint('./CIFAR10_checkpt_40.pt', net)
+	print("Loading at epoch %d" % epoch)
+	# state = net.state_dict()
+	# state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
 
-	# torch.save(net.state_dict(), './CIFAR10_trained_40.pt')
+	# net.load_state_dict(state)
+	net.to(device)
 
-	# dataiter = iter(testloader)
-	# images, labels = dataiter.next()
-	# images = images.to(device)
+	with torch.no_grad():
+		trainedOutput = net(images)
 
-	# net = Autoencoder()
-	# net = nn.DataParallel(net)
+	concatSlice = torch.cat((images, trainedOutput.detach())).cpu()
 
-	# net, epoch, optimizer, loss = loadCheckpoint('./CIFAR10_checkpt_40.pt', net)
-	# print("Loading at epoch %d" % epoch)
-	# # state = net.state_dict()
-	# # state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
-
-	# # net.load_state_dict(state)
-	# net.to(device)
-
-	# with torch.no_grad():
-	# 	trainedOutput = net(images)
-
-	# concatSlice = torch.cat((images, trainedOutput.detach())).cpu()
-
-	# imshow(torchvision.utils.make_grid(concatSlice))
+	imshow(torchvision.utils.make_grid(concatSlice))
 
 
 if __name__ == "__main__":
