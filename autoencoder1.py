@@ -128,7 +128,7 @@ def saveCheckpoint(model, epoch, optimizer, loss, path):
 		path
 	)
 	print('Checkpoint saved to ' + path)
-
+	
 def loadCheckpoint(path, model):
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
@@ -182,20 +182,36 @@ def evaluate(model, criterion, testset, batch_size=8):
 	testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
 	model.eval()
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-	total = 0
-	totalLoss = 0
+
+	# Set up the different loss functions we need here
+
+	# Each of these is a tensor, and will have its elements summed at the end for efficiency.
+	batchSumOfSquareDiffs = 0
+	batchSumOfSquareDiffsOfLogs = 0
+	batchSumOfAbsRelDiffs = 0
+	batchSumOfSquareRelDiffs = 0
+
+	totalBatches = 0
+	totalSamples = 0
+
 	with torch.no_grad():
 		for data in testloader:
 			inputs, labels = data
 			inputs = inputs.to(device)
-			outputs = model(inputs)
-			loss = criterion(outputs, inputs)
-			totalLoss += loss
-			print("Batch loss: %.5f" % loss)
-			total += 1
-		ave_loss = totalLoss/total
+			# outputs = model(inputs)
+			outputs = inputs	# TESTING LINE
 
-	print("Average loss over %d test examples = %.5f" %(total * batch_size, ave_loss))
+			currBatchSquareDiffs = torch.pow(2, outputs - inputs)
+			batchSumOfSquareDiffs += currBatchSquareDiffs
+			batchSumOfSquareDiffsOfLogs += torch.pow(2, torch.log(outputs) - torch.log(inputs))
+			batchSumOfAbsRelDiffs += torch.abs(outputs - inputs)
+			batchSumOfSquareRelDiffs += currBatchSquareDiffs / outputs
+
+			totalBatches += 1
+			totalSamples += inputs.shape[0]
+
+		print(totalBatches, totalSamples)
+
 
 def main():
 	transform = transforms.Compose(
@@ -205,8 +221,8 @@ def main():
 		]
 	)
 
-	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=True, transform=transform)
-	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=True, transform=transform)
+	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=False, transform=transform)
+	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=False, transform=transform)
 
 	model = Autoencoder()
 
@@ -221,34 +237,34 @@ def main():
 	criterion = criterion.to(device)
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-	model, epoch, optimizer, loss = loadCheckpoint('CIFAR10_checkpt_5.pt', model)
+	model, epoch, optimizer, loss = loadCheckpoint('checkpoints/CIFAR10_checkpt_5.pt', model)
 
-	# evaluate(model, criterion, testset, batch_size=90)
+	evaluate(model, criterion, testset, batch_size=100)
 
 	# train(model, optimizer, criterion, trainset, batch_size=40, epoch=epoch, num_epochs=100)
-	testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
+	# testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
 
-	dataiter = iter(testloader)
-	images, labels = dataiter.next()
-	images = images.to(device)
+	# dataiter = iter(testloader)
+	# images, labels = dataiter.next()
+	# images = images.to(device)
 
-	net = Autoencoder()
-	net = nn.DataParallel(net)
+	# net = Autoencoder()
+	# net = nn.DataParallel(net)
 
-	net, epoch, optimizer, loss = loadCheckpoint('./CIFAR10_checkpt_40.pt', net)
-	print("Loading at epoch %d" % epoch)
-	# state = net.state_dict()
-	# state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
+	# net, epoch, optimizer, loss = loadCheckpoint('./CIFAR10_checkpt_40.pt', net)
+	# print("Loading at epoch %d" % epoch)
+	# # state = net.state_dict()
+	# # state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
 
-	# net.load_state_dict(state)
-	net.to(device)
+	# # net.load_state_dict(state)
+	# net.to(device)
 
-	with torch.no_grad():
-		trainedOutput = net(images)
+	# with torch.no_grad():
+	# 	trainedOutput = net(images)
 
-	concatSlice = torch.cat((images, trainedOutput.detach())).cpu()
+	# concatSlice = torch.cat((images, trainedOutput.detach())).cpu()
 
-	imshow(torchvision.utils.make_grid(concatSlice))
+	# imshow(torchvision.utils.make_grid(concatSlice))
 
 
 if __name__ == "__main__":
