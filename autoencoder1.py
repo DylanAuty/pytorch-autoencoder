@@ -183,7 +183,12 @@ def evaluate(model, criterion, testset, batch_size=8):
 	model.eval()
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-	# Set up the different loss functions we need here: RMSE Lin and log, abs rel, and square rel.
+	# Set up the different loss functions we need here:
+	# 	RMSE Lin,
+	# 	RMSE log,
+	#	abs rel,
+	#	square rel,
+	# 	and %age of points s.t. max((y/y*), (y*/y)) < delta for delta = 1.25, 1.25^2, and 1.25^3.
 
 	# Each of these is a tensor, and will have its elements summed at the end for efficiency.
 	batchSumOfSquareDiffs = 0
@@ -191,10 +196,17 @@ def evaluate(model, criterion, testset, batch_size=8):
 	batchSumOfAbsRelDiffs = 0
 	batchSumOfSquareRelDiffs = 0
 
+	# These are tallies for elements that satisfy the delta inequalities - they will be tensors until the end, when they'll have their elements summed to get the outputs.
+	totalDelta1_25 = 0
+	totalDelta1_25_2 = 0
+	totalDelta1_25_3 = 0
+
+	# These are used to keep track of the number of items we have in the test set, necessary for metrics.
 	totalBatches = 0
 	totalSamples = 0
+	totalPoints = 0
 
-	eps = 1e-8
+	eps = 1e-8	# This is a tiny value added on to things that will be log'd, to stop them being NaN.
 
 	with torch.no_grad():
 		for data in testloader:
@@ -209,16 +221,27 @@ def evaluate(model, criterion, testset, batch_size=8):
 			batchSumOfAbsRelDiffs += torch.abs(outputs - inputs)
 			batchSumOfSquareRelDiffs += currBatchSquareDiffs / outputs
 
+			totalDelta1_25 += torch.lt(torch.max(inputs/outputs, outputs/inputs), 1.25)
+			totalDelta1_25_2 += torch.lt(torch.max(inputs/outputs, outputs/inputs), 1.5625)
+			totalDelta1_25_3 += torch.lt(torch.max(inputs/outputs, outputs/inputs), 1.953125)
+
 			totalBatches += 1
 
 		totalSamples = totalBatches * batch_size
+		totalPoints = totalSamples * torch.numel(totalDelta1_25) / 100
+
+		# Calculate our normalised %age (0 to 1) of points satisfying the various deltas in the above inequality.
+		delta1_25 = torch.sum(totalDelta1_25) / totalPoints
+		delta1_25_2 = torch.sum(totalDelta1_25_2) / totalPoints	
+		delta1_25_3 = torch.sum(totalDelta1_25_3) / totalPoints
+
+		# Calculate the rest of the metrics mentioned above
 		RMSELin = torch.sqrt(torch.sum(batchSumOfSquareDiffs) / totalSamples)
 		RMSELog = torch.sqrt(torch.sum(batchSumOfSquareDiffsOfLogs) / totalSamples)
 		AbsRel = torch.sum(batchSumOfAbsRelDiffs) / totalSamples
-		print(batchSumOfSquareRelDiffs.type())
 		SquareRel = torch.sum(batchSumOfSquareRelDiffs) / totalSamples
 
-		print(RMSELin.to('cpu'), RMSELog.to('cpu'), AbsRel.to('cpu'), SquareRel.to('cpu'))
+		return(RMSELin.item(), RMSELog.item(), AbsRel.item(), SquareRel.item(), delta1_25.item(), delta1_25_2.item(), delta1_25_3.item())
 
 
 def main():
@@ -247,7 +270,7 @@ def main():
 
 	model, epoch, optimizer, loss = loadCheckpoint('checkpoints/CIFAR10_checkpt_5.pt', model)
 
-	evaluate(model, criterion, testset, batch_size=100)
+	print(evaluate(model, criterion, testset, batch_size=100))
 
 	# train(model, optimizer, criterion, trainset, batch_size=40, epoch=epoch, num_epochs=100)
 	# testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
