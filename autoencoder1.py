@@ -183,7 +183,7 @@ def evaluate(model, criterion, testset, batch_size=8):
 	model.eval()
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-	# Set up the different loss functions we need here
+	# Set up the different loss functions we need here: RMSE Lin and log, abs rel, and square rel.
 
 	# Each of these is a tensor, and will have its elements summed at the end for efficiency.
 	batchSumOfSquareDiffs = 0
@@ -194,6 +194,8 @@ def evaluate(model, criterion, testset, batch_size=8):
 	totalBatches = 0
 	totalSamples = 0
 
+	eps = 1e-8
+
 	with torch.no_grad():
 		for data in testloader:
 			inputs, labels = data
@@ -201,16 +203,22 @@ def evaluate(model, criterion, testset, batch_size=8):
 			# outputs = model(inputs)
 			outputs = inputs	# TESTING LINE
 
-			currBatchSquareDiffs = torch.pow(2, outputs - inputs)
+			currBatchSquareDiffs = torch.pow(outputs - inputs, 2)
 			batchSumOfSquareDiffs += currBatchSquareDiffs
-			batchSumOfSquareDiffsOfLogs += torch.pow(2, torch.log(outputs) - torch.log(inputs))
+			batchSumOfSquareDiffsOfLogs += torch.pow(torch.log((outputs + eps)/(inputs + eps)), 2)
 			batchSumOfAbsRelDiffs += torch.abs(outputs - inputs)
 			batchSumOfSquareRelDiffs += currBatchSquareDiffs / outputs
 
 			totalBatches += 1
-			totalSamples += inputs.shape[0]
 
-		print(totalBatches, totalSamples)
+		totalSamples = totalBatches * batch_size
+		RMSELin = torch.sqrt(torch.sum(batchSumOfSquareDiffs) / totalSamples)
+		RMSELog = torch.sqrt(torch.sum(batchSumOfSquareDiffsOfLogs) / totalSamples)
+		AbsRel = torch.sum(batchSumOfAbsRelDiffs) / totalSamples
+		print(batchSumOfSquareRelDiffs.type())
+		SquareRel = torch.sum(batchSumOfSquareRelDiffs) / totalSamples
+
+		print(RMSELin.to('cpu'), RMSELog.to('cpu'), AbsRel.to('cpu'), SquareRel.to('cpu'))
 
 
 def main():
