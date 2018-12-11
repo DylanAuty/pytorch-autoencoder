@@ -180,8 +180,12 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 def evaluate(model, criterion, testset, batch_size=8):
 	print("Evaluating model performance")
 	testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
-	model.eval()
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+	# if torch.cuda.device_count() > 1:
+	# 	model = nn.DataParallel(model)
+
+	# model = model.to(device)
+	model.eval()
 
 	# Set up the different loss functions we need here:
 	# 	RMSE Lin,
@@ -206,45 +210,56 @@ def evaluate(model, criterion, testset, batch_size=8):
 	totalSamples = 0
 	totalPoints = 0
 
-	eps = 1e-8	# This is a tiny value added on to things that will be log'd, to stop them being NaN.
+	eps = 1e-3	# This is a tiny value that will be used as the minimum value for thing that will be log'd
 
 	with torch.no_grad():
-		for data in testloader:
-			inputs, labels = data
-			inputs = inputs.to(device)
-			# outputs = model(inputs)
-			outputs = inputs	# TESTING LINE
+		for i, data in enumerate(testloader, 0):
+			inputs, labels = data			
+
+			# Send inputs to device, push through network. Clamp both inputs and outputs to avoid both /0 errors and log(x<=0) errors.
+			# The transforms applied to the data on the way in can sometimes make 0 values in the inputs into very small -ve values.
+			inputs = torch.clamp(inputs.to(device), min=eps)
+			outputs = torch.clamp(model(inputs), min=eps)
+
+			# outputs = inputs	# TESTING LINE
 
 			currBatchSquareDiffs = torch.pow(outputs - inputs, 2)
 			batchSumOfSquareDiffs += currBatchSquareDiffs
-			batchSumOfSquareDiffsOfLogs += torch.pow(torch.log((outputs + eps)/(inputs + eps)), 2)
+			batchSumOfSquareDiffsOfLogs += torch.pow(torch.log(outputs) - torch.log(inputs), 2)
 			batchSumOfAbsRelDiffs += torch.abs(outputs - inputs)
-			batchSumOfSquareRelDiffs += currBatchSquareDiffs / outputs
+			batchSumOfSquareRelDiffs += (currBatchSquareDiffs / outputs)
+			# print(currBatchSquareDiffs/outputs)
 
-			totalDelta1_25 += torch.lt(torch.max(inputs/outputs, outputs/inputs), 1.25)
-			totalDelta1_25_2 += torch.lt(torch.max(inputs/outputs, outputs/inputs), 1.5625)
-			totalDelta1_25_3 += torch.lt(torch.max(inputs/outputs, outputs/inputs), 1.953125)
+			totalDelta1_25 += torch.lt(torch.max(outputs/inputs, inputs/outputs), 1.25)
+			totalDelta1_25_2 += torch.lt(torch.max(outputs/inputs, inputs/outputs), 1.5625)
+			totalDelta1_25_3 += torch.lt(torch.max(outputs/inputs, inputs/outputs), 1.953125)
 
 			totalBatches += 1
+			break
 
 		totalSamples = totalBatches * batch_size
-		totalPoints = totalSamples * torch.numel(totalDelta1_25) / 100
+		totalPoints = torch.numel(totalDelta1_25) * totalBatches
 
 		# Calculate our normalised %age (0 to 1) of points satisfying the various deltas in the above inequality.
-		delta1_25 = torch.sum(totalDelta1_25) / totalPoints
-		delta1_25_2 = torch.sum(totalDelta1_25_2) / totalPoints	
-		delta1_25_3 = torch.sum(totalDelta1_25_3) / totalPoints
+		print(totalPoints)
+		print("######")
+		print(torch.sum(batchSumOfSquareDiffsOfLogs))
+		delta1_25 = torch.sum(totalDelta1_25).item() / totalPoints
+		delta1_25_2 = torch.sum(totalDelta1_25_2).item() / totalPoints	
+		delta1_25_3 = torch.sum(totalDelta1_25_3).item() / totalPoints
 
 		# Calculate the rest of the metrics mentioned above
-		RMSELin = torch.sqrt(torch.sum(batchSumOfSquareDiffs) / totalSamples)
-		RMSELog = torch.sqrt(torch.sum(batchSumOfSquareDiffsOfLogs) / totalSamples)
-		AbsRel = torch.sum(batchSumOfAbsRelDiffs) / totalSamples
-		SquareRel = torch.sum(batchSumOfSquareRelDiffs) / totalSamples
+		RMSELin = torch.sqrt(torch.sum(batchSumOfSquareDiffs) / totalPoints)
+		RMSELog = torch.sqrt(torch.sum(batchSumOfSquareDiffsOfLogs) / totalPoints)
+		AbsRel = torch.sum(batchSumOfAbsRelDiffs) / totalPoints
+		SquareRel = torch.sum(batchSumOfSquareRelDiffs) / totalPoints
+		print(torch.sum(batchSumOfSquareRelDiffs))
+		print(totalPoints)
 
-		return(RMSELin.item(), RMSELog.item(), AbsRel.item(), SquareRel.item(), delta1_25.item(), delta1_25_2.item(), delta1_25_3.item())
-
+		return(RMSELin.item(), RMSELog.item(), AbsRel.item(), SquareRel.item(), delta1_25, delta1_25_2, delta1_25_3)
 
 def main():
+	# Transforms to put into a tensor and normalise the incoming Pillow images.
 	transform = transforms.Compose(
 		[	
 			transforms.ToTensor(),
@@ -252,6 +267,7 @@ def main():
 		]
 	)
 
+	# Set up datasets, model and loss/optimiser. If there's cuda available then send to the GPU.
 	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=False, transform=transform)
 	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=False, transform=transform)
 
@@ -268,11 +284,14 @@ def main():
 	criterion = criterion.to(device)
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-	model, epoch, optimizer, loss = loadCheckpoint('checkpoints/CIFAR10_checkpt_5.pt', model)
+	# To resume training:
+	model, epoch, optimizer, loss = loadCheckpoint('checkpoints/CIFAR10_checkpt_40.pt', model)
 
-	print(evaluate(model, criterion, testset, batch_size=100))
+	print(evaluate(model, criterion, testset, batch_size=80))
 
 	# train(model, optimizer, criterion, trainset, batch_size=40, epoch=epoch, num_epochs=100)
+	
+	# Load a model, shove a batch of 8 through and display the results
 	# testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
 
 	# dataiter = iter(testloader)
@@ -282,7 +301,7 @@ def main():
 	# net = Autoencoder()
 	# net = nn.DataParallel(net)
 
-	# net, epoch, optimizer, loss = loadCheckpoint('./CIFAR10_checkpt_40.pt', net)
+	# net, epoch, optimizer, loss = loadCheckpoint('./checkpoints/CIFAR10_checkpt_40.pt', net)
 	# print("Loading at epoch %d" % epoch)
 	# # state = net.state_dict()
 	# # state.update(torch.load('./CIFAR10_checkpt_40.pt').state_dict)
