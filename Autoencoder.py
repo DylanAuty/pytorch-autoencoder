@@ -1,3 +1,6 @@
+# Autoencoder.py
+# A basic autoencoder model that accepts 3 channel inputs and hopefully returns similarly dimensioned things at the other end.
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

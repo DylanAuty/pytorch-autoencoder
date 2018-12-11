@@ -10,7 +10,9 @@ import numpy as np
 
 import time
 
+# Imports from this folder
 from Autoencoder import Autoencoder
+import utils
 
 # This may come in handy
 # https://github.com/mortezamg63/Accessing-and-modifying-different-layers-of-a-pretrained-model-in-pytorch
@@ -20,31 +22,6 @@ def imshow(img):
 	npimg = img.numpy()
 	plt.imshow(np.transpose(npimg, (1, 2, 0)))
 	plt.show()
-
-def saveCheckpoint(model, epoch, optimizer, loss, path):
-	torch.save(
-		{
-			'epoch': epoch,
-			'model_state_dict': model.state_dict(),
-			'optimizer_state_dict': optimizer.state_dict(),
-			'loss': loss,
-		},
-		path
-	)
-	print('Checkpoint saved to ' + path)
-	
-def loadCheckpoint(path, model):
-	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
-	checkpoint = torch.load(path)
-	state = model.state_dict()
-	state.update(checkpoint['model_state_dict'])
-	model.load_state_dict(checkpoint['model_state_dict'])
-	optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-	epoch = checkpoint['epoch']
-	loss = checkpoint['loss']
-
-	return model, epoch, optimizer, loss
 
 def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epoch=0, num_epochs=2):
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -79,7 +56,7 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 		if epoch % 5 == 4:
 			print('Saving checkpoint for epoch %d' % (epoch + 1))
 			# torch.save(model.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
-			saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
+			utils.saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
 
 def evaluate(model, criterion, testset, batch_size=8):
 	print("Evaluating model performance")
@@ -183,7 +160,7 @@ def main():
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 	# To resume training:
-	model, epoch, optimizer, loss = loadCheckpoint('checkpoints/CIFAR10_checkpt_40.pt', model)
+	model, epoch, optimizer, loss = utils.loadCheckpoint('checkpoints/CIFAR10_checkpt_40.pt', model)
 
 	print(evaluate(model, criterion, testset, batch_size=80))
 
