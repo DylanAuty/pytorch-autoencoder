@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import time
+import argparse
 
 # Imports from this folder
 from Autoencoder import Autoencoder
@@ -23,12 +24,13 @@ def imshow(img):
 	plt.imshow(np.transpose(npimg, (1, 2, 0)))
 	plt.show()
 
-def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epoch=0, num_epochs=2):
+def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epoch=0, num_epochs=2, checkpoint_dir="./checkpoints", save_freq=5):
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
 
 	if epoch != 0:
 		print("Resuming training from epoch %d of %d." % (epoch, num_epochs))
+		print("Batch size is %d, saving checkpoint to %s every %d epochs" % (batch_size, checkpoint_dir, save_freq))
 
 	for epoch in range(epoch, num_epochs):
 		running_loss = 0.0
@@ -49,11 +51,11 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 			running_loss += loss.item()
 			if i % 10 == 9:
 				duration = time.time() - start_time
-				print('[%d, %5d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
+				print('[E: %d, B: %5d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
 				running_loss = 0.0
 				start_time = time.time()
 
-		if epoch % 5 == 4:
+		if epoch % save_freq == (save_freq - 1):
 			print('Saving checkpoint for epoch %d' % (epoch + 1))
 			# torch.save(model.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
 			utils.saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
@@ -134,6 +136,20 @@ def evaluate(model, criterion, testset, batch_size=8):
 		return(RMSELin.item(), RMSELog.item(), AbsRel.item(), SquareRel.item(), delta1_25, delta1_25_2, delta1_25_3)
 
 def main():
+	# Set up argparser.
+	parser = argparse.ArgumentParser()
+	parseTrainEval = parser.add_mutually_exclusive_group()
+	parseTrainEval.add_argument("-t", "--train",														help="Use training mode",	action="store_true")
+	parseTrainEval.add_argument("-e", "--evaluate",														help="Use evaluation mode", action="store_true")
+	parser.add_argument(		"-b", "--batch_size",			type=int,	default=8,					help="Batch size to use for training or evaluation depending on what mode you're in")
+	parser.add_argument(		"-s", "--save_frequency",		type=int,	default=5,					help="Save a checkpoint every SAVE_FREQUENCY epochs")
+	parser.add_argument(		"-c", "--checkpoint_directory",	type=str,	default="./checkpoints", 	help="Directory to save checkpoints to")
+	parser.add_argument(		"-n", "--num_epochs",			type=int,	default=50,					help="Number of epochs to train for")
+	parser.add_argument(		"-l", "--load_checkpoint",		type=str,								help="Path of model checkpoint to load and use")
+
+	args = parser.parse_args()
+
+	print("Initialising...")
 	# Transforms to put into a tensor and normalise the incoming Pillow images.
 	transform = transforms.Compose(
 		[	
@@ -142,29 +158,43 @@ def main():
 		]
 	)
 
+	print("	Loading datasets...")
 	# Set up datasets, model and loss/optimiser. If there's cuda available then send to the GPU.
 	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=False, transform=transform)
 	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=False, transform=transform)
 
+	print("	Initialising model...")
 	model = Autoencoder()
+	epoch = 0	# This is used when resuming training and is overwritten on load.
 
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+	print("	Using device:	" + str(device))
+	
 	if torch.cuda.device_count() > 1:
+		print("	Using		%d CUDA-capable devices" % torch.cuda.device_count())
 		model = nn.DataParallel(model)
 
 	model.to(device)
 
+	print("	Configuring optimiser...")
 	criterion = nn.MSELoss()
 	criterion = criterion.to(device)
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-	# To resume training:
-	model, epoch, optimizer, loss = utils.loadCheckpoint('checkpoints/CIFAR10_checkpt_40.pt', model)
+	# To resume from a checkpoint:
+	if(args.load_checkpoint):
+		print("Loading checkpoint from " + args.load_checkpoint)
+		model, epoch, optimizer, loss = utils.loadCheckpoint(args.load_checkpoint, model)
 
-	print(evaluate(model, criterion, testset, batch_size=80))
+	if(args.evaluate):
+		print("\n### Evaluation Mode ###\n")
+		print("Evaluating model with batch size %d..." % args.batch_size)
+		print(evaluate(model, criterion, testset, batch_size=args.batch_size))
 
-	# train(model, optimizer, criterion, trainset, batch_size=40, epoch=epoch, num_epochs=100)
+	if(args.train):
+		print("\n### Training Mode ###\n")
+		print("Training checkpoint: " + args.load_checkpoint)
+		train(model, optimizer, criterion, trainset, batch_size=args.batch_size, epoch=epoch, num_epochs=args.num_epochs, save_freq=args.save_frequency, checkpoint_dir=args.checkpoint_directory)
 	
 	# Load a model, shove a batch of 8 through and display the results
 	# testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
