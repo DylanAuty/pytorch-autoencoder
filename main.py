@@ -51,7 +51,7 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 			running_loss += loss.item()
 			if i % 10 == 9:
 				duration = time.time() - start_time
-				print('[E: %d, B: %5d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
+				print('[E: %d, B: %2d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
 				running_loss = 0.0
 				start_time = time.time()
 
