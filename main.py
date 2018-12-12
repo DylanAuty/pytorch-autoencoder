@@ -13,6 +13,7 @@ import numpy as np
 import time
 import argparse
 import os
+import sys
 
 # Imports from this folder
 from Autoencoder import Autoencoder
@@ -31,8 +32,7 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
 	if(os.path.isdir(checkpoint_dir) != True):
-		print("Error: Supplied checkpoint directory does not exist or is a file.")
-		return
+		sys.exit("Error: Supplied checkpoint directory does not exist or is a file.")
 
 	if epoch != 0:
 		print("Resuming training from epoch %d of %d." % (epoch, num_epochs))
@@ -60,8 +60,6 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 				print('[E: %d, B: %2d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
 				running_loss = 0.0
 				start_time = time.time()
-				utils.saveCheckpoint(model, epoch, optimizer, loss, (os.path.join(checkpoint_dir, checkpoint_basename) + '%d.pt') % (epoch))
-
 
 		if epoch % save_freq == (save_freq - 1):
 			print('Saving checkpoint for epoch %d' % (epoch + 1))
@@ -162,6 +160,9 @@ def main():
 	if(args.checkpoint_directory):
 		args.checkpoint_directory = os.path.dirname(args.checkpoint_directory)
 
+	if(args.load_checkpoint and not os.path.isfile(args.load_checkpoint)):
+		sys.exit("Error: specified checkpoint either doesn't exist or isn't a file.")
+
 	# Transforms to put into a tensor and normalise the incoming Pillow images.
 	transform = transforms.Compose(
 		[	
@@ -204,9 +205,10 @@ def main():
 		print("\n### Training Mode ###\n")
 		if(args.load_checkpoint):
 			print("Training from checkpoint: " + args.load_checkpoint)
+			model, epoch, optimizer, loss = utils.loadCheckpoint(args.load_checkpoint, model)
 		train(model, optimizer, criterion, trainset, batch_size=args.batch_size, epoch=epoch, num_epochs=args.num_epochs, save_freq=args.save_frequency, checkpoint_dir=args.checkpoint_directory, checkpoint_basename=args.checkpoint_basename)
 	else:
-		print("Error: No mode selected. Use `./main.py -h` for usage instructions.")
+		sys.exit("Error: No mode selected. Use `./main.py -h` for usage instructions.")
 
 	# Load a model, shove a batch of 8 through and display the results
 	# testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
