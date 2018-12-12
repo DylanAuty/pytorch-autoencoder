@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,6 +12,7 @@ import numpy as np
 
 import time
 import argparse
+import os
 
 # Imports from this folder
 from Autoencoder import Autoencoder
@@ -24,9 +27,12 @@ def imshow(img):
 	plt.imshow(np.transpose(npimg, (1, 2, 0)))
 	plt.show()
 
-def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epoch=0, num_epochs=2, checkpoint_dir="./checkpoints", save_freq=5):
+def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epoch=0, num_epochs=2, checkpoint_dir="./checkpoints", checkpoint_basename="checkpoint_", save_freq=5):
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
+	if(os.path.isdir(checkpoint_dir) != True):
+		print("Error: Supplied checkpoint directory does not exist or is a file.")
+		return
 
 	if epoch != 0:
 		print("Resuming training from epoch %d of %d." % (epoch, num_epochs))
@@ -54,11 +60,13 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 				print('[E: %d, B: %2d] loss: %.3f, took %.3f secs' % (epoch + 1, i + 1, running_loss / 10, duration))
 				running_loss = 0.0
 				start_time = time.time()
+				utils.saveCheckpoint(model, epoch, optimizer, loss, (os.path.join(checkpoint_dir, checkpoint_basename) + '%d.pt') % (epoch))
+
 
 		if epoch % save_freq == (save_freq - 1):
 			print('Saving checkpoint for epoch %d' % (epoch + 1))
 			# torch.save(model.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
-			utils.saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_%d.pt' % (epoch + 1))
+			utils.saveCheckpoint(model, epoch, optimizer, loss, (os.path.join(checkpoint_dir, checkpoint_basename) + '%d.pt') % (epoch))
 
 def evaluate(model, criterion, testset, batch_size=8):
 	print("Evaluating model performance")
@@ -146,10 +154,14 @@ def main():
 	parser.add_argument(		"-c", "--checkpoint_directory",	type=str,	default="./checkpoints", 	help="Directory to save checkpoints to")
 	parser.add_argument(		"-n", "--num_epochs",			type=int,	default=50,					help="Number of epochs to train for")
 	parser.add_argument(		"-l", "--load_checkpoint",		type=str,								help="Path of model checkpoint to load and use")
+	parser.add_argument(		"-f", "--checkpoint_basename",	type=str,	default="checkpoint_",		help="Basename to use for saved checkpoints. Gets appended with the epoch no. at saving")
 
 	args = parser.parse_args()
 
 	print("Initialising...")
+	if(args.checkpoint_directory):
+		args.checkpoint_directory = os.path.dirname(args.checkpoint_directory)
+
 	# Transforms to put into a tensor and normalise the incoming Pillow images.
 	transform = transforms.Compose(
 		[	
@@ -181,8 +193,6 @@ def main():
 	criterion = criterion.to(device)
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-	# To resume from a checkpoint:
-
 	if(args.evaluate):
 		print("\n### Evaluation Mode ###\n")
 		if(args.load_checkpoint):
@@ -190,13 +200,14 @@ def main():
 			model, epoch, optimizer, loss = utils.loadCheckpoint(args.load_checkpoint, model)
 		print("Evaluating model with batch size %d..." % args.batch_size)
 		print(evaluate(model, criterion, testset, batch_size=args.batch_size))
-
-	if(args.train):
+	elif(args.train):
 		print("\n### Training Mode ###\n")
 		if(args.load_checkpoint):
 			print("Training from checkpoint: " + args.load_checkpoint)
-		train(model, optimizer, criterion, trainset, batch_size=args.batch_size, epoch=epoch, num_epochs=args.num_epochs, save_freq=args.save_frequency, checkpoint_dir=args.checkpoint_directory)
-	
+		train(model, optimizer, criterion, trainset, batch_size=args.batch_size, epoch=epoch, num_epochs=args.num_epochs, save_freq=args.save_frequency, checkpoint_dir=args.checkpoint_directory, checkpoint_basename=args.checkpoint_basename)
+	else:
+		print("Error: No mode selected. Use `./main.py -h` for usage instructions.")
+
 	# Load a model, shove a batch of 8 through and display the results
 	# testloader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, num_workers=2)
 
