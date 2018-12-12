@@ -58,7 +58,7 @@ def train(model, optimizer, criterion, trainset, batch_size=8, shuffle=True, epo
 		if epoch % save_freq == (save_freq - 1):
 			print('Saving checkpoint for epoch %d' % (epoch + 1))
 			# torch.save(model.state_dict(), './CIFAR10_checkpt_%d.pt' % epoch + 1)
-			utils.saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_2_%d.pt' % (epoch + 1))
+			utils.saveCheckpoint(epoch, model, optimizer, loss, './CIFAR10_checkpt_%d.pt' % (epoch + 1))
 
 def evaluate(model, criterion, testset, batch_size=8):
 	print("Evaluating model performance")
@@ -182,18 +182,19 @@ def main():
 	optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 	# To resume from a checkpoint:
-	if(args.load_checkpoint):
-		print("Loading checkpoint from " + args.load_checkpoint)
-		model, epoch, optimizer, loss = utils.loadCheckpoint(args.load_checkpoint, model)
 
 	if(args.evaluate):
 		print("\n### Evaluation Mode ###\n")
+		if(args.load_checkpoint):
+			print("Loading model checkpoint for evaluation from " + args.load_checkpoint)
+			model, epoch, optimizer, loss = utils.loadCheckpoint(args.load_checkpoint, model)
 		print("Evaluating model with batch size %d..." % args.batch_size)
 		print(evaluate(model, criterion, testset, batch_size=args.batch_size))
 
 	if(args.train):
 		print("\n### Training Mode ###\n")
-		print("Training checkpoint: " + args.load_checkpoint)
+		if(args.load_checkpoint):
+			print("Training from checkpoint: " + args.load_checkpoint)
 		train(model, optimizer, criterion, trainset, batch_size=args.batch_size, epoch=epoch, num_epochs=args.num_epochs, save_freq=args.save_frequency, checkpoint_dir=args.checkpoint_directory)
 	
 	# Load a model, shove a batch of 8 through and display the results
