@@ -31,6 +31,8 @@ def imshow(img):
 def train(model, optimizer, criterion, trainset, logfile_path="./logfile.csv", batch_size=8, shuffle=True, epoch=0, num_epochs=2, checkpoint_dir="./checkpoints", checkpoint_basename="checkpoint_", save_freq=5):
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
+	del trainset
+	torch.cuda.empty_cache()
 	if(os.path.isdir(checkpoint_dir) != True):
 		sys.exit("Error: Supplied checkpoint directory does not exist or is a file.")
 
@@ -57,6 +59,8 @@ def train(model, optimizer, criterion, trainset, logfile_path="./logfile.csv", b
 
 			outputs = model(inputs)
 			loss = criterion(outputs, inputs)
+			del outputs, inputs
+			torch.cuda.empty_cache()
 			loss = loss.to(device)
 			loss.backward()
 			optimizer.step()
