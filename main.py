@@ -17,6 +17,7 @@ import sys
 
 # Imports from this folder
 from Autoencoder import Autoencoder
+from NYUD2 import NYUD2
 import utils
 
 # This may come in handy
@@ -30,7 +31,7 @@ def imshow(img):
 
 def train(model, optimizer, criterion, trainset, logfile_path="./logfile.csv", batch_size=8, shuffle=True, epoch=0, num_epochs=2, checkpoint_dir="./checkpoints", checkpoint_basename="checkpoint_", save_freq=5):
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
+	trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=8)
 	del trainset
 	torch.cuda.empty_cache()
 	if(os.path.isdir(checkpoint_dir) != True):
@@ -53,12 +54,17 @@ def train(model, optimizer, criterion, trainset, logfile_path="./logfile.csv", b
 		for i, data in enumerate(trainloader, 0):
 			inputs, labels = data
 
+			inputs = inputs.float()
 			inputs = inputs.to(device)
+			labels = labels.float()
+			labels = labels.to(device)
 
+			print(inputs.shape)
+			print(labels.shape)
 			optimizer.zero_grad()
 
 			outputs = model(inputs)
-			loss = criterion(outputs, inputs)
+			loss = criterion(outputs, labels)
 			del outputs, inputs
 			torch.cuda.empty_cache()
 			loss = loss.to(device)
@@ -80,7 +86,7 @@ def train(model, optimizer, criterion, trainset, logfile_path="./logfile.csv", b
 
 def evaluate(model, criterion, testset, batch_size=8):
 	print("Evaluating model performance")
-	testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
+	testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=8)
 	device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 	# if torch.cuda.device_count() > 1:
 	# 	model = nn.DataParallel(model)
@@ -163,7 +169,7 @@ def main():
 	parseTrainEval.add_argument("-e", "--evaluate",																			help="Use evaluation mode", action="store_true")
 	parser.add_argument(		"-b", "--batch_size",			type=int,	default=8,										help="Batch size to use for training or evaluation depending on what mode you're in")
 	parser.add_argument(		"-s", "--save_frequency",		type=int,	default=5,										help="Save a checkpoint every SAVE_FREQUENCY epochs")
-	parser.add_argument(		"-c", "--checkpoint_directory",	type=str,	default="./",			 						help="Directory to save checkpoints to")
+	parser.add_argument(		"-c", "--checkpoint_directory",	type=str,	default="./checkpoints",						help="Directory to save checkpoints to")
 	parser.add_argument(		"-n", "--num_epochs",			type=int,	default=50,										help="Number of epochs to train for")
 	parser.add_argument(		"-l", "--load_checkpoint",		type=str,													help="Path of model checkpoint to load and use")
 	parser.add_argument(		"-f", "--checkpoint_basename",	type=str,	default="checkpoint_" + currDateTime,			help="Basename to use for saved checkpoints. Gets appended with the epoch no. at saving")
@@ -189,8 +195,8 @@ def main():
 
 	print("	Loading datasets...")
 	# Set up datasets, model and loss/optimiser. If there's cuda available then send to the GPU.
-	trainset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=True, download=False, transform=transform)
-	testset = torchvision.datasets.CIFAR10(root='~/WorkingDatasets', train=False, download=False, transform=transform)
+	trainset = NYUD2(root='/media/hdd1/Datasets', split='train', transform=transform)
+	testset = NYUD2(root='/media/hdd1/Datasets', split='test', transform=transform)
 
 	print("	Initialising model...")
 	model = Autoencoder()
